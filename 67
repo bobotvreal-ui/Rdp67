@@ -1,0 +1,134 @@
+name: Ayush Ultimate RDP Server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  Build_Secure_Server:
+    runs-on: windows-latest
+    timeout-minutes: 3600
+
+    steps:
+      - name: 🛡️ Step 1 - System Initialization & Diagnostics
+        run: |
+          Write-Output "=================================================="
+          Write-Output "   INITIALIZING SYSTEM DIAGNOSTICS & SETUP        "
+          Write-Output "=================================================="
+          Write-Output "[INFO] Fetching System Details..."
+          $OS = Get-WmiObject Win32_OperatingSystem
+          $CPU = Get-WmiObject Win32_Processor
+          $RAM = [Math]::Round(($OS.TotalVisibleMemorySize / 1MB), 2)
+          Write-Output "[INFO] OS: $($OS.Caption)"
+          Write-Output "[INFO] CPU: $($CPU.Name)"
+          Write-Output "[INFO] RAM: $RAM GB"
+          Write-Output "[INFO] System environment verified."
+          Write-Output "=================================================="
+
+      - name: ⚙️ Step 2 - Deep RDP Configuration & Registry Fixes
+        run: |
+          Write-Output "[INFO] Modifying Windows Registry for RDP..."
+          $RegPath1 = "HKLM:\System\CurrentControlSet\Control\Terminal Server"
+          $RegPath2 = "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp"
+          
+          Set-ItemProperty -Path $RegPath1 -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path $RegPath2 -Name "UserAuthentication" -Value 0 -Force
+          Set-ItemProperty -Path $RegPath2 -Name "SecurityLayer" -Value 0 -Force
+          
+          Write-Output "[INFO] Enabling Remote Desktop Firewall Rules..."
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue
+          
+          Write-Output "[INFO] Adding Custom Tailscale Firewall Bypass..."
+          # Ye rahi wo line jahan se maine -Force hata diya hai
+          New-NetFirewallRule -DisplayName "Tailscale-RDP-Allow" -Direction Inbound -Protocol TCP -LocalPort 3389 -Action Allow -Profile Any
+          
+          Write-Output "[INFO] Restarting Terminal Services to apply deep changes..."
+          Restart-Service -Name "TermService" -Force
+          Write-Output "[SUCCESS] Core RDP configuration complete."
+
+      - name: 🔐 Step 3 - Create High-Security Administrator Profile
+        run: |
+          Write-Output "[INFO] Generating Secure User Profile..."
+          $TargetUser = "AyushAdmin"
+          $TargetPass = "Ayush@ProGamer2026"
+          
+          Write-Output "[INFO] Encrypting Password..."
+          $SecurePassString = ConvertTo-SecureString -String $TargetPass -AsPlainText -Force
+          
+          Write-Output "[INFO] Injecting User into Local Machine..."
+          New-LocalUser -Name $TargetUser -Password $SecurePassString -FullName "Ayush Root Admin" -Description "Unrestricted RDP Access" -AccountNeverExpires
+          
+          Write-Output "[INFO] Granting Administrative and Remote Desktop Privileges..."
+          Add-LocalGroupMember -Group "Administrators" -Member $TargetUser
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member $TargetUser
+          
+          Write-Output "[SUCCESS] User '$TargetUser' created and authorized."
+
+      - name: 🌐 Step 4 - Fetch & Install Tailscale (Failsafe Method)
+        run: |
+          Write-Output "[INFO] Defining strict file paths to prevent variable parsing errors..."
+          $DownloadURL = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+          $SaveLocation = "C:\TailscaleInstaller_Hardcoded.msi"
+          
+          Write-Output "[INFO] Downloading Tailscale from official servers..."
+          Invoke-WebRequest -Uri $DownloadURL -OutFile $SaveLocation -UseBasicParsing
+          
+          Write-Output "[INFO] Executing Silent Installation..."
+          $InstallArgs = "/i C:\TailscaleInstaller_Hardcoded.msi /quiet /norestart"
+          Start-Process -FilePath "msiexec.exe" -ArgumentList $InstallArgs -Wait -NoNewWindow
+          
+          Write-Output "[INFO] Verifying Installation..."
+          if (Test-Path "C:\Program Files\Tailscale\tailscale.exe") {
+              Write-Output "[SUCCESS] Tailscale successfully installed."
+          } else {
+              Write-Error "[FATAL] Tailscale installation failed."
+              exit 1
+          }
+          
+          Write-Output "[INFO] Cleaning up temporary installer files..."
+          Remove-Item -Path $SaveLocation -Force
+
+      - name: 🔌 Step 5 - Authorize Device on Tailscale Network
+        run: |
+          Write-Output "[INFO] Initializing Tailscale Daemon..."
+          $TS_EXE = "C:\Program Files\Tailscale\tailscale.exe"
+          $AuthKey = "${{ secrets.TAILSCALE_AUTH_KEY }}"
+          $HostName = "ayush-ultimate-server"
+          
+          Write-Output "[INFO] Sending Authentication Request..."
+          & $TS_EXE up --authkey=$AuthKey --hostname=$HostName --accept-routes
+          
+          Write-Output "[INFO] Waiting for IP Lease Assignment (15 seconds)..."
+          Start-Sleep -Seconds 15
+          
+          $NodeIP = & $TS_EXE ip -4
+          if ([string]::IsNullOrWhiteSpace($NodeIP)) {
+              Write-Error "[FATAL] Failed to retrieve Tailscale IP address."
+              exit 1
+          }
+          Write-Output "[SUCCESS] Authenticated successfully. Node IP: $NodeIP"
+
+      - name: 🚀 Step 6 - Broadcast Credentials & Keep-Alive Loop
+        run: |
+          $TS_EXE = "C:\Program Files\Tailscale\tailscale.exe"
+          $FinalIP = & $TS_EXE ip -4
+          
+          Write-Output ""
+          Write-Output "================================================================="
+          Write-Output "   🟢 SERVER IS ONLINE - READY FOR INCOMING CONNECTIONS 🟢    "
+          Write-Output "================================================================="
+          Write-Output "   📡 CONNECT TO IP   : $FinalIP"
+          Write-Output "   👤 LOGIN USERNAME  : AyushAdmin"
+          Write-Output "   🔑 LOGIN PASSWORD  : Ayush@ProGamer2026"
+          Write-Output "================================================================="
+          Write-Output "   [NOTE] Open 'Remote Desktop Connection' app on your device, "
+          Write-Output "   enter the IP Address above, and use the credentials."
+          Write-Output "================================================================="
+          Write-Output ""
+          
+          Write-Output "[INFO] Initiating Keep-Alive sequence. Server will run for 6 hours max."
+          $Uptime = 0
+          while ($true) {
+              Start-Sleep -Seconds 300
+              $Uptime += 5
+              Write-Output "[STATUS] Server Uptime: $Uptime minutes. System is healthy and listening on port 3389."
+          }
